@@ -1,0 +1,48 @@
+Instruction types:
+00: hlt
+01: add
+02: sub
+03: mul
+04: div
+05: or
+06: and
+07: not
+08: xor
+09: shl
+0a: shr
+0b: cmp
+0c: entry
+0d: jmp
+0e: je
+0f: jl
+10: jle
+11: jne
+12: jnl
+13: jnle
+14: call
+15: ret
+16: push
+17: pop
+18: swap
+19: alloc
+1a: free
+1b: <expansion>
+1c: <expansion>
+1d: <expansion>
+1e: <expansion>
+1f: <expansion>
+
+Operand types:
+0: absent
+1: small constant
+2: register
+3: stack offset
+4: heap offset
+5: following constant
+
+At most 3 operands, encoded into 8-bit field (0-5 each, 6^3 = 216)
+
+19 bits left for operands:
+- We have 8 registers, so each "register" needs 3 bits
+- Use 8 bits to store offsets/small constants
+- Offsets are word offsets, i.e. multiplied by 4
