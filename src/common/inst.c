@@ -125,7 +125,7 @@ int rvm_inst_check_valid(rvm_inst *inst) {
     case RVM_INST_SHR:
         if(inst->optype[0] == RVM_OP_ABSENT) return 1;
         if(inst->optype[1] == RVM_OP_ABSENT) return 1;
-        if(inst->optype[2] != RVM_OP_ABSENT
+        if(inst->optype[2] == RVM_OP_ABSENT
             && (inst->optype[0] == RVM_OP_LCONST
                 || inst->optype[0] == RVM_OP_SCONST)) return 1;
         return 0;

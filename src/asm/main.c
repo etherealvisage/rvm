@@ -8,19 +8,22 @@
 
 #include "common/inst.h"
 
-static void parse(FILE *in, FILE *out);
-static void parse_line(char *line, rvm_inst *result, uint32_t *following,
-    int *num_following, uint32_t address);
-static void skip_whitespace(char **p);
-static char *get_token(char **p);
-
 static char *symbol_names[MAX_SYMBOLS];
 static uint32_t symbol_values[MAX_SYMBOLS];
 static uint32_t symbol_count;
 
 static uint32_t symbol_ref_address[MAX_SYMBOL_REFS];
 static uint32_t symbol_ref_index[MAX_SYMBOL_REFS];
+static uint32_t symbol_ref_adjust[MAX_SYMBOL_REFS];
 static uint32_t symbol_ref_count;
+
+static void parse(FILE *in, FILE *out);
+static int parse_line(char *line, rvm_inst *result, uint32_t *following,
+    int *num_following, uint32_t address);
+static void skip_whitespace(char **p);
+static char *get_token(char **p);
+static uint32_t symbol_index(const char *name);
+
 
 int main(int argc, char *argv[]) {
     if(argc != 3) {
@@ -62,7 +65,8 @@ static void parse(FILE *in, FILE *out) {
         line[strlen(line)-1] = 0;
         lineno++;
 
-        parse_line(line, &inst, encoded + 1, &num_following, address);
+        if(parse_line(line, &inst, encoded + 1, &num_following, address))
+            continue;
 
         if(rvm_inst_check_valid(&inst)) {
             printf("Invalid instruction on line %i\n", lineno);
@@ -75,13 +79,15 @@ static void parse(FILE *in, FILE *out) {
         address += (num_following+1)*4;
     }
 
-    if(symbol_ref_count) {
-        printf("There are %u symbol references to fix.\n", symbol_ref_count);
-        // TODO: FIX THEM!
+    for(uint32_t i = 0; i < symbol_ref_count; i ++) {
+        fseek(out, symbol_ref_address[i], SEEK_SET);
+        uint32_t value = symbol_values[symbol_ref_index[i]];
+        value += symbol_ref_adjust[i];
+        fwrite(&value, sizeof(uint32_t), 1, out);
     }
 }
 
-static void parse_line(char *line, rvm_inst *result, uint32_t *following,
+static int parse_line(char *line, rvm_inst *result, uint32_t *following,
     int *num_following, uint32_t address) {
 
     // clear result to keep things clean.
@@ -91,19 +97,32 @@ static void parse_line(char *line, rvm_inst *result, uint32_t *following,
 
     char *op = get_token(&line);
     // empty line?
-    if(*op == 0) return;
+    if(*op == 0) return 1;
     // comment?
-    if(*op == '#') return;
+    if(*op == '#') return 1;
     // label?
     if(*op == ':') {
-        symbol_values[symbol_count] = address;
         symbol_names[symbol_count] = malloc(line-op+1);
-        strncpy(symbol_names[symbol_count], op, line-op);
-        symbol_names[symbol_count++][line-op] = 0;
+        strncpy(symbol_names[symbol_count], op+1, line-op-1);
+        symbol_names[symbol_count][line-op] = 0;
+        uint32_t in = symbol_index(symbol_names[symbol_count]);
+        if(in == symbol_count) symbol_count ++;
+        else free(symbol_names[symbol_count]);
+        symbol_values[in] = address;
 
         result->type = RVM_INST_ENTRY;
-        *num_following = 0;
-        return;
+        return 0;
+    }
+    // label forward-decl?
+    if(*op == ';') {
+        symbol_names[symbol_count] = malloc(line-op+1);
+        strncpy(symbol_names[symbol_count], op+1, line-op-1);
+        symbol_names[symbol_count][line-op] = 0;
+        uint32_t in = symbol_index(symbol_names[symbol_count]);
+        if(in == symbol_count) symbol_count ++;
+        else free(symbol_names[symbol_count]);
+
+        return 1;
     }
 
     int type = -1;
@@ -134,18 +153,17 @@ static void parse_line(char *line, rvm_inst *result, uint32_t *following,
     for(int i = 0; i < opcount; i ++) {
         // label reference
         if(opstr[i][0] == ':') {
-            uint32_t j;
-            for(j = 0; j < symbol_count; j ++) {
-                if(!strcmp(opstr[i]+1, symbol_names[j])) break;
-            }
-            if(j == symbol_count) {
-                printf("Unknown symbol reference '%s'.\n", opstr[i]+1);
+            uint32_t in = symbol_index(opstr[i]+1);
+            if(in == symbol_count) {
+                printf("Unknown symbol reference '%s'.\n", opstr[i]);
                 exit(1);
             }
 
             (*num_following) ++;
             symbol_ref_address[symbol_ref_count] = address + (*num_following * 4);
-            symbol_ref_index[symbol_ref_count++] = j;
+            symbol_ref_adjust[symbol_ref_count] = -address;
+            symbol_ref_index[symbol_ref_count++] = in;
+            result->optype[i] = RVM_OP_LCONST;
         }
         // register
         else if(opstr[i][0] == 'r') {
@@ -192,6 +210,8 @@ static void parse_line(char *line, rvm_inst *result, uint32_t *following,
     }
 
     while(opcount > 0) free(opstr[--opcount]);
+
+    return 0;
 }
 
 static void skip_whitespace(char **p) {
@@ -205,4 +225,12 @@ static char *get_token(char **p) {
         (*p) ++;
     }
     return word;
+}
+
+static uint32_t symbol_index(const char *name) {
+    uint32_t j;
+    for(j = 0; j < symbol_count; j ++) {
+        if(!strcmp(name, symbol_names[j])) break;
+    }
+    return j;
 }
