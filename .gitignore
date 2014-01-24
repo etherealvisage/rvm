@@ -3,3 +3,5 @@
 
 /asm
 /vm
+/.ycm_extra_conf.py*
+/output
