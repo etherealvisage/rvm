@@ -3,13 +3,24 @@
 #include <string.h>
 #include <ctype.h>
 
+#define MAX_SYMBOLS 1024
+#define MAX_SYMBOL_REFS 1024
+
 #include "common/inst.h"
 
 static void parse(FILE *in, FILE *out);
 static void parse_line(char *line, rvm_inst *result, uint32_t *following,
-    int *num_following);
+    int *num_following, uint32_t address);
 static void skip_whitespace(char **p);
 static char *get_token(char **p);
+
+static char *symbol_names[MAX_SYMBOLS];
+static uint32_t symbol_values[MAX_SYMBOLS];
+static uint32_t symbol_count;
+
+static uint32_t symbol_ref_address[MAX_SYMBOL_REFS];
+static uint32_t symbol_ref_index[MAX_SYMBOL_REFS];
+static uint32_t symbol_ref_count;
 
 int main(int argc, char *argv[]) {
     if(argc != 3) {
@@ -46,11 +57,12 @@ static void parse(FILE *in, FILE *out) {
     // assuming all lines < 1024 chars long
     char line[1024];
     int lineno = 0;
+    uint32_t address = 0;
     while(fgets(line, sizeof(line), in)) {
         line[strlen(line)-1] = 0;
         lineno++;
 
-        parse_line(line, &inst, encoded + 1, &num_following);
+        parse_line(line, &inst, encoded + 1, &num_following, address);
 
         if(rvm_inst_check_valid(&inst)) {
             printf("Invalid instruction on line %i\n", lineno);
@@ -60,11 +72,17 @@ static void parse(FILE *in, FILE *out) {
         encoded[0] = rvm_inst_from_struct(&inst);
 
         fwrite(encoded, sizeof(uint32_t), num_following+1, out);
+        address += (num_following+1)*4;
+    }
+
+    if(symbol_ref_count) {
+        printf("There are %u symbol references to fix.\n", symbol_ref_count);
+        // TODO: FIX THEM!
     }
 }
 
 static void parse_line(char *line, rvm_inst *result, uint32_t *following,
-    int *num_following) {
+    int *num_following, uint32_t address) {
 
     // clear result to keep things clean.
     memset(result, 0, sizeof(*result));
@@ -78,7 +96,11 @@ static void parse_line(char *line, rvm_inst *result, uint32_t *following,
     if(*op == '#') return;
     // label?
     if(*op == ':') {
-        // TODO: add label to global symbol table
+        symbol_values[symbol_count] = address;
+        symbol_names[symbol_count] = malloc(line-op+1);
+        strncpy(symbol_names[symbol_count], op, line-op);
+        symbol_names[symbol_count++][line-op] = 0;
+
         result->type = RVM_INST_ENTRY;
         *num_following = 0;
         return;
@@ -112,7 +134,18 @@ static void parse_line(char *line, rvm_inst *result, uint32_t *following,
     for(int i = 0; i < opcount; i ++) {
         // label reference
         if(opstr[i][0] == ':') {
-            // TODO: look up stuff...
+            uint32_t j;
+            for(j = 0; j < symbol_count; j ++) {
+                if(!strcmp(opstr[i]+1, symbol_names[j])) break;
+            }
+            if(j == symbol_count) {
+                printf("Unknown symbol reference '%s'.\n", opstr[i]+1);
+                exit(1);
+            }
+
+            (*num_following) ++;
+            symbol_ref_address[symbol_ref_count] = address + (*num_following * 4);
+            symbol_ref_index[symbol_ref_count++] = j;
         }
         // register
         else if(opstr[i][0] == 'r') {
@@ -151,11 +184,12 @@ static void parse_line(char *line, rvm_inst *result, uint32_t *following,
         }
         // constant
         else {
-            uint32_t parsed;
+            uint32_t parsed = 0;
             if(sscanf(opstr[i] + 1, "%u", &parsed) == 0) {
                 printf("Unknown constant specification '%s'\n", opstr[i]);
                 exit(1);
             }
+
             if((int32_t)((int8_t)parsed) == (int32_t)parsed) {
                 result->optype[i] = RVM_OP_SCONST;
                 result->opval[i] = (uint8_t)parsed;
