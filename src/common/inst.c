@@ -62,14 +62,14 @@ uint32_t rvm_inst_from_struct(rvm_inst *inst) {
     for(int i = 0; i < 3; i ++) {
         switch(inst->optype[i]) {
         case RVM_OP_REG:
-            result |= ((uint32_t)(inst->opval[i]) << (32-13-offset)) & 0x7;
+            result |= ((uint32_t)(inst->opval[i]) << offset);
             offset += 3;
             break;
         case RVM_OP_ABSENT:
         case RVM_OP_LCONST:
             break;
         default: // SCONST/STACK
-            result |= (uint32_t)(inst->opval[i]) << (32-13-offset);
+            result |= ((uint32_t)(inst->opval[i])) << offset;
             offset += 8;
             break;
         }
@@ -91,14 +91,14 @@ void rvm_inst_to_struct(uint32_t encoded, rvm_inst *inst) {
     for(int i = 0; i < 3; i ++) {
         switch(inst->optype[i]) {
         case RVM_OP_REG:
-            inst->opval[i] = (encoded >> (32-13-offset)) & 0x7;
+            inst->opval[i] = (encoded >> offset) & 0x7;
             offset += 3;
             break;
         case RVM_OP_ABSENT:
         case RVM_OP_LCONST:
             break;
         default:
-            inst->opval[i] = (encoded >> (32-13-offset)) & 0xff;
+            inst->opval[i] = (encoded >> offset) & 0xff;
             offset += 8;
             break;
         }

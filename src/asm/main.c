@@ -174,7 +174,7 @@ static void parse_line(char *line, rvm_inst *result, uint32_t *following,
         // constant
         else {
             uint32_t parsed = 0;
-            if(sscanf(opstr[i] + 1, "%u", &parsed) == 0) {
+            if(sscanf(opstr[i], "%u", &parsed) == 0) {
                 printf("Unknown constant specification '%s'\n", opstr[i]);
                 exit(1);
             }
