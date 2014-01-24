@@ -201,25 +201,25 @@ static void sim_loop(rvm_cpu_state *cpu, rvm_mem *stack, rvm_mem *heap) {
         case RVM_INST_ENTRY:
             break;
         case RVM_INST_JMP:
-            cpu->pc += *op[0];
+            cpu->pc += *op[0] - 1;
             break;
         case RVM_INST_JE:
-            if(cpu->zflag) cpu->pc += *op[0];
+            if(cpu->zflag) cpu->pc += *op[0] - 1;
             break;
         case RVM_INST_JL:
-            if(cpu->nflag) cpu->pc += *op[0];
+            if(cpu->nflag) cpu->pc += *op[0] - 1;
             break;
         case RVM_INST_JLE:
-            if(cpu->nflag && cpu->zflag) cpu->pc += *op[0];
+            if(cpu->nflag && cpu->zflag) cpu->pc += *op[0] - 1;
             break;
         case RVM_INST_JNE:
-            if(!cpu->zflag) cpu->pc += *op[0];
+            if(!cpu->zflag) cpu->pc += *op[0] - 1;
             break;
         case RVM_INST_JNL:
-            if(!cpu->nflag) cpu->pc += *op[0];
+            if(!cpu->nflag) cpu->pc += *op[0] - 1;
             break;
         case RVM_INST_JNLE:
-            if(!cpu->nflag && !cpu->zflag) cpu->pc += *op[0];
+            if(!cpu->nflag && !cpu->zflag) cpu->pc += *op[0] - 1;
             break;
         case RVM_INST_CALL:
             // TODO

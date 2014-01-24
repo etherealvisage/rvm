@@ -108,7 +108,7 @@ static int parse_line(char *line, rvm_inst *result, uint32_t *following,
         uint32_t in = symbol_index(symbol_names[symbol_count]);
         if(in == symbol_count) symbol_count ++;
         else free(symbol_names[symbol_count]);
-        symbol_values[in] = address;
+        symbol_values[in] = address/4;
 
         result->type = RVM_INST_ENTRY;
         return 0;
@@ -161,7 +161,7 @@ static int parse_line(char *line, rvm_inst *result, uint32_t *following,
 
             (*num_following) ++;
             symbol_ref_address[symbol_ref_count] = address + (*num_following * 4);
-            symbol_ref_adjust[symbol_ref_count] = -address;
+            symbol_ref_adjust[symbol_ref_count] = -(address/4);
             symbol_ref_index[symbol_ref_count++] = in;
             result->optype[i] = RVM_OP_LCONST;
         }
