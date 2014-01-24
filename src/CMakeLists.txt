@@ -1,4 +1,4 @@
-add_definitions(-Wall -Wextra -ansi -pedantic -Wno-unused-parameter -std=c99)
+add_definitions(-Wall -Wextra -Wno-unused-parameter -std=gnu99)
 add_definitions(-g -O2)
 
 aux_source_directory(asm asmSources)

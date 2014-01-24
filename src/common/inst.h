@@ -46,7 +46,6 @@ typedef enum rvm_op_type {
     RVM_OP_SCONST,
     RVM_OP_REG,
     RVM_OP_STACK,
-    RVM_OP_HEAP,
     RVM_OP_LCONST
 } rvm_op_type;
 

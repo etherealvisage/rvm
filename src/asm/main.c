@@ -171,17 +171,6 @@ static void parse_line(char *line, rvm_inst *result, uint32_t *following,
             }
             result->opval[i] = parsed;
         }
-        // heap memory
-        else if(opstr[i][0] == '@') {
-            uint32_t parsed;
-            if(sscanf(opstr[i] + 1, "%u", &parsed) == 0) {
-                printf("Unknown heap offset specification '%s'\n", opstr[i]);
-                exit(1);
-            }
-            result->optype[i] = RVM_OP_HEAP;
-            (*num_following) ++;
-            *(following++) = parsed;
-        }
         // constant
         else {
             uint32_t parsed = 0;

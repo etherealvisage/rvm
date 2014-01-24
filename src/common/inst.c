@@ -51,9 +51,9 @@ uint32_t rvm_inst_from_struct(rvm_inst *inst) {
 
     uint8_t optypes = 0;
     optypes += inst->optype[2];
-    optypes *= 6;
+    optypes *= 5;
     optypes += inst->optype[1];
-    optypes *= 6;
+    optypes *= 5;
     optypes += inst->optype[0];
 
     result |= (uint32_t)(optypes) << (32-5-8);
@@ -67,7 +67,6 @@ uint32_t rvm_inst_from_struct(rvm_inst *inst) {
             break;
         case RVM_OP_ABSENT:
         case RVM_OP_LCONST:
-        case RVM_OP_HEAP:
             break;
         default: // SCONST/STACK
             result |= (uint32_t)(inst->opval[i]) << (32-13-offset);
@@ -84,9 +83,9 @@ void rvm_inst_to_struct(uint32_t encoded, rvm_inst *inst) {
 
     inst->type = (rvm_inst_type)type;
     uint8_t optypes = (encoded >> (32-5-8)) & 0xff;
-    inst->optype[0] = (rvm_op_type)(optypes % 6);
-    inst->optype[1] = (rvm_op_type)((optypes / 6) % 6);
-    inst->optype[2] = (rvm_op_type)((optypes / 6 / 6) % 6);
+    inst->optype[0] = (rvm_op_type)(optypes % 5);
+    inst->optype[1] = (rvm_op_type)((optypes / 5) % 5);
+    inst->optype[2] = (rvm_op_type)((optypes / 5 / 5) % 5);
 
     uint8_t offset = 0;
     for(int i = 0; i < 3; i ++) {
@@ -97,7 +96,6 @@ void rvm_inst_to_struct(uint32_t encoded, rvm_inst *inst) {
             break;
         case RVM_OP_ABSENT:
         case RVM_OP_LCONST:
-        case RVM_OP_HEAP:
             break;
         default:
             inst->opval[i] = (encoded >> (32-13-offset)) & 0xff;
