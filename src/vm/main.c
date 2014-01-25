@@ -31,6 +31,8 @@ static void rvm_mem_add_page(rvm_mem *mem);
 
 static void sim_loop(rvm_cpu_state *cpu, rvm_mem *stack, rvm_mem *heap);
 
+static void dump_cpu_state(rvm_cpu_state *cpu);
+
 int main(int argc, char *argv[]) {
     if(argc != 2) {
         printf("Usage: %s program\n", argv[0]);
@@ -61,11 +63,14 @@ int main(int argc, char *argv[]) {
 
     rvm_mem stack, heap;
     stack.size = 0;
+    stack.contents = NULL;
     heap.size = 0;
+    heap.contents = NULL;
 
     rvm_cpu_state cpu;
     cpu.pc = 0;
     cpu.sp = 0;
+    cpu.zflag = false; cpu.nflag = false;
     cpu.halted = false;
     cpu.jumped = false;
     memset(cpu.regs, 0, sizeof(cpu.regs));
@@ -86,17 +91,9 @@ static void rvm_mem_add_page(rvm_mem *mem) {
 }
 
 static void sim_loop(rvm_cpu_state *cpu, rvm_mem *stack, rvm_mem *heap) {
+    uint32_t heap_top = 0;
     rvm_inst inst;
     while(!cpu->halted) {
-        printf("CPU state:\n");
-        printf("\tPC: %x\n", cpu->pc);
-        printf("\tSP: %x\n", cpu->sp);
-        printf("\tFlags: %s %s\n", cpu->zflag?"ZF":"", cpu->nflag?"NF":"");
-        printf("\tRegisters:\n");
-        printf("\t\t%08x %08x %08x %08x\n", cpu->regs[0], cpu->regs[1],
-            cpu->regs[2], cpu->regs[3]);
-        printf("\t\t%08x %08x %08x %08x\n", cpu->regs[4], cpu->regs[5],
-            cpu->regs[6], cpu->regs[7]);
         uint32_t ni;
         uint32_t following[3];
         uint32_t opfollow[3];
@@ -106,13 +103,14 @@ static void sim_loop(rvm_cpu_state *cpu, rvm_mem *stack, rvm_mem *heap) {
             exit(1);
         }
 
+        uint32_t old_pc = cpu->pc;
         ni = program[cpu->pc++];
         rvm_inst_to_struct(ni, &inst);
         for(int i = 0; i < 3; i ++) {
-            if(inst.optype[i] == RVM_OP_LCONST) {
+            if(inst.optype[i] % 3 == 1) { // lconst
                 opfollow[i] = following_count;
                 if(cpu->pc*4 >= program_size) {
-                    printf("Invalid instruction -- extends past end of program\n");
+                    printf("Instruction extends past end of program\n");
                     exit(1);
                 }
                 following[following_count++] = program[cpu->pc++];
@@ -123,30 +121,47 @@ static void sim_loop(rvm_cpu_state *cpu, rvm_mem *stack, rvm_mem *heap) {
             printf("Jumped to non-entry instruction!\n");
             exit(1);
         }
+        else if(cpu->jumped) cpu->jumped = false;
 
         if(rvm_inst_check_valid(&inst)) {
-            printf("Invalid %s instruction!\n", rvm_inst_type_strings[inst.type]);
+            printf("Invalid %s instruction!\n",
+                rvm_inst_type_strings[inst.type]);
             exit(1);
         }
+        // as an optimization, skip the operand parsing for entry.
+        if(inst.type == RVM_INST_ENTRY) continue;
 
         // constants, if a target for *op is needed
         uint32_t opc[3];
         uint32_t *op[3];
         for(int i = 0; i < 3; i ++) {
-            switch(inst.optype[i]) {
-            case RVM_OP_ABSENT:
+            if(inst.optype[i] == RVM_OP_ABSENT) {
                 op[i] = NULL;
-                break;
-            case RVM_OP_SCONST:
-            case RVM_OP_STACK:
+                continue;
+            }
+            switch(inst.optype[i] % 3) {
+            case 0: // sconst
                 opc[i] = inst.opval[i];
                 op[i] = opc + i;
                 break;
-            case RVM_OP_REG:
+            case 1: // lconst
+                op[i] = following + opfollow[i];
+                break;
+            case 2: // reg
                 op[i] = cpu->regs + inst.opval[i];
                 break;
-            case RVM_OP_LCONST:
-                op[i] = following + opfollow[i];
+            }
+
+            switch(inst.optype[i] / 3) {
+            case 0: // value
+                break;
+            case 1: // stack
+                // todo: check for over/underflow
+                // todo: check if within stack frame
+                op[i] = heap->contents + *op[i] + cpu->sp;
+                break;
+            case 2: // heap
+                op[i] = heap->contents + *op[i];
                 break;
             }
         }
@@ -195,43 +210,81 @@ static void sim_loop(rvm_cpu_state *cpu, rvm_mem *stack, rvm_mem *heap) {
             if(op[2]) *op[2] = *op[0] >> *op[1];
             else *op[0] >>= *op[1];
             break;
-        case RVM_INST_CMP:
-            // TODO
+        case RVM_INST_CMP: {
+            uint32_t result = *op[0] - *op[1];
+            if(result == 0) cpu->zflag = true;
+            else cpu->zflag = false;
+            if(result & (1<<31)) cpu->nflag = true;
+            else cpu->nflag = false;
             break;
-        case RVM_INST_ENTRY:
+        }
+        case RVM_INST_ENTRY: // naught to do.
             break;
         case RVM_INST_JMP:
             cpu->pc += *op[0] - 1;
+            cpu->jumped = true;
             break;
         case RVM_INST_JE:
-            if(cpu->zflag) cpu->pc += *op[0] - 1;
+            if(cpu->zflag) {
+                cpu->pc = old_pc + *op[0];
+                cpu->jumped = true;
+            }
             break;
         case RVM_INST_JL:
-            if(cpu->nflag) cpu->pc += *op[0] - 1;
+            if(cpu->nflag) {
+                cpu->pc = old_pc + *op[0];
+                cpu->jumped = true;
+            }
             break;
         case RVM_INST_JLE:
-            if(cpu->nflag && cpu->zflag) cpu->pc += *op[0] - 1;
+            if(cpu->nflag && cpu->zflag) {
+                cpu->pc = old_pc + *op[0];
+                cpu->jumped = true;
+            }
             break;
         case RVM_INST_JNE:
-            if(!cpu->zflag) cpu->pc += *op[0] - 1;
+            if(!cpu->zflag) {
+                cpu->pc = old_pc + *op[0];
+                cpu->jumped = true;
+            }
             break;
         case RVM_INST_JNL:
-            if(!cpu->nflag) cpu->pc += *op[0] - 1;
+            if(!cpu->nflag) {
+                cpu->pc = old_pc + *op[0];
+                cpu->jumped = true;
+            }
             break;
         case RVM_INST_JNLE:
-            if(!cpu->nflag && !cpu->zflag) cpu->pc += *op[0] - 1;
+            if(!cpu->nflag && !cpu->zflag) {
+                cpu->pc = old_pc + *op[0];
+                cpu->jumped = true;
+            }
             break;
         case RVM_INST_CALL:
-            // TODO
+            // TODO: establish new frame
+            if(cpu->sp * 4 + 4 >= stack->size) rvm_mem_add_page(stack);
+            stack->contents[cpu->sp ++] = cpu->pc;
+            cpu->pc = old_pc + *op[0];
+            cpu->jumped = true;
+
             break;
         case RVM_INST_RET:
-            // TODO
+            // TODO: remove old frame
+            cpu->pc = stack->contents[-- cpu->sp];
+            cpu->jumped = false; // returns are always to valid targets due to frame system
+
             break;
         case RVM_INST_PUSH:
-            // TODO
+            if(cpu->sp * 4 + 4 >= stack->size) rvm_mem_add_page(stack);
+            stack->contents[cpu->sp ++] = *op[0];
             break;
         case RVM_INST_POP:
-            // TODO
+            // TODO: check frame limits
+            if(cpu->sp == 0) {
+                 printf("Stack underflow!\n");
+                 exit(1);
+            }
+            *op[0] = stack->contents[-- cpu->sp];
             break;
         case RVM_INST_SWAP: {
             uint32_t t = *op[0];
@@ -239,9 +292,16 @@ static void sim_loop(rvm_cpu_state *cpu, rvm_mem *stack, rvm_mem *heap) {
             *op[1] = t;
             break;
         }
-        case RVM_INST_ALLOC:
-            // TODO
+        case RVM_INST_ALLOC: {
+            // watermark allocator . . . sigh.
+            while(heap_top + *op[0] >= heap->size) {
+                heap->size += 0x1000;
+                rvm_mem_add_page(heap);
+            }
+            *op[1] = heap_top;
+            heap_top += *op[0];
             break;
+        }
         case RVM_INST_FREE:
             // TODO
             break;
@@ -250,4 +310,18 @@ static void sim_loop(rvm_cpu_state *cpu, rvm_mem *stack, rvm_mem *heap) {
             break;
         }
     }
+
+    dump_cpu_state(cpu);
+}
+
+static void dump_cpu_state(rvm_cpu_state *cpu) {
+    printf("\tCPU state:\n");
+    printf("\t\tPC: %x\n", cpu->pc);
+    printf("\t\tSP: %x\n", cpu->sp);
+    printf("\t\tFlags: %s %s\n", cpu->zflag?"ZF":"", cpu->nflag?"NF":"");
+    printf("\t\tRegisters:\n");
+    printf("\t\t\t%08x %08x %08x %08x\n", cpu->regs[0], cpu->regs[1],
+        cpu->regs[2], cpu->regs[3]);
+    printf("\t\t\t%08x %08x %08x %08x\n", cpu->regs[4], cpu->regs[5],
+        cpu->regs[6], cpu->regs[7]);
 }

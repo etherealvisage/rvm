@@ -42,22 +42,24 @@ typedef enum rvm_inst_type {
 extern const char *rvm_inst_type_strings[];
 
 typedef enum rvm_op_type {
-    RVM_OP_ABSENT = 0,
-    RVM_OP_SCONST,
-    RVM_OP_REG,
-    RVM_OP_STACK,
-    RVM_OP_LCONST
+    RVM_OP_VALUE_SCONST,
+    RVM_OP_VALUE_LCONST,
+    RVM_OP_VALUE_REG,
+    RVM_OP_STACK_SCONST,
+    RVM_OP_STACK_LCONST,
+    RVM_OP_STACK_REG,
+    RVM_OP_HEAP_SCONST,
+    RVM_OP_HEAP_LCONST,
+    RVM_OP_HEAP_REG,
+    RVM_OP_ABSENT,
+    RVM_OP_TYPES
 } rvm_op_type;
 
 typedef struct rvm_inst {
     rvm_inst_type type;
     rvm_op_type optype[3];
-    uint8_t opval[3];
+    uint16_t opval[3];
 } rvm_inst;
-
-// instruction-specific information for easy validation
-extern const int rvm_inst_opcount_min[];
-extern const int rvm_inst_opcount_max[];
 
 uint32_t rvm_inst_from_struct(rvm_inst *inst);
 void rvm_inst_to_struct(uint32_t encoded, rvm_inst *inst);

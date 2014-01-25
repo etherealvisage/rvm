@@ -10,6 +10,7 @@
 
 static char *symbol_names[MAX_SYMBOLS];
 static uint32_t symbol_values[MAX_SYMBOLS];
+static uint8_t symbol_has_value[MAX_SYMBOLS];
 static uint32_t symbol_count;
 
 static uint32_t symbol_ref_address[MAX_SYMBOL_REFS];
@@ -82,6 +83,10 @@ static void parse(FILE *in, FILE *out) {
     for(uint32_t i = 0; i < symbol_ref_count; i ++) {
         fseek(out, symbol_ref_address[i], SEEK_SET);
         uint32_t value = symbol_values[symbol_ref_index[i]];
+        printf("symbol name: %s\n", symbol_names[symbol_ref_index[i]]);
+        printf("symbol value: %x\n", value);
+        printf("symbol adjust: %x\n", symbol_ref_adjust[i]);
+        printf("symbol has value: %x\n", symbol_has_value[symbol_ref_index[i]]);
         value += symbol_ref_adjust[i];
         fwrite(&value, sizeof(uint32_t), 1, out);
     }
@@ -104,22 +109,25 @@ static int parse_line(char *line, rvm_inst *result, uint32_t *following,
     if(*op == ':') {
         symbol_names[symbol_count] = malloc(line-op+1);
         strncpy(symbol_names[symbol_count], op+1, line-op-1);
-        symbol_names[symbol_count][line-op] = 0;
+        symbol_names[symbol_count][line-op-1] = 0;
         uint32_t in = symbol_index(symbol_names[symbol_count]);
         if(in == symbol_count) symbol_count ++;
         else free(symbol_names[symbol_count]);
         symbol_values[in] = address/4;
+        symbol_has_value[in] = 1;
 
         result->type = RVM_INST_ENTRY;
+
+        for(int i = 0; i < 3; i ++) result->optype[i] = RVM_OP_ABSENT;
         return 0;
     }
     // label forward-decl?
     if(*op == ';') {
         symbol_names[symbol_count] = malloc(line-op+1);
         strncpy(symbol_names[symbol_count], op+1, line-op-1);
-        symbol_names[symbol_count][line-op] = 0;
+        symbol_names[symbol_count][line-op-1] = 0;
         uint32_t in = symbol_index(symbol_names[symbol_count]);
-        if(in == symbol_count) symbol_count ++;
+        if(in == symbol_count) symbol_count ++, symbol_has_value[in] = 0;
         else free(symbol_names[symbol_count]);
 
         return 1;
@@ -139,6 +147,11 @@ static int parse_line(char *line, rvm_inst *result, uint32_t *following,
 
     result->type = type;
 
+    // absent by default
+    result->optype[0] = RVM_OP_ABSENT;
+    result->optype[1] = RVM_OP_ABSENT;
+    result->optype[2] = RVM_OP_ABSENT;
+
     char *opstr[3] = {NULL, NULL, NULL};
     int opcount;
     for(opcount = 0; opcount < 3; opcount ++) {
@@ -151,7 +164,7 @@ static int parse_line(char *line, rvm_inst *result, uint32_t *following,
     }
 
     for(int i = 0; i < opcount; i ++) {
-        // label reference
+        // relative label reference
         if(opstr[i][0] == ':') {
             uint32_t in = symbol_index(opstr[i]+1);
             if(in == symbol_count) {
@@ -159,54 +172,56 @@ static int parse_line(char *line, rvm_inst *result, uint32_t *following,
                 exit(1);
             }
 
+            printf("Found symbol '%s' at index %i\n", opstr[i]+1, in);
             (*num_following) ++;
             symbol_ref_address[symbol_ref_count] = address + (*num_following * 4);
+            printf("\taddress: %i (adjust %x)\n", address, -(address/4));
             symbol_ref_adjust[symbol_ref_count] = -(address/4);
             symbol_ref_index[symbol_ref_count++] = in;
-            result->optype[i] = RVM_OP_LCONST;
+            result->optype[i] = RVM_OP_VALUE_LCONST;
+            continue;
         }
+
+        // value/stack/heap.
+        uint16_t type = 0;
+        const char *ops = opstr[i];
+        // stack?
+        if(opstr[i][0] == '!') {
+            type = RVM_OP_STACK_SCONST;
+            ops ++;
+        }
+        else if(opstr[i][0] == '@') {
+            type = RVM_OP_HEAP_SCONST;
+            ops ++;
+        }
+
         // register
-        else if(opstr[i][0] == 'r') {
-            if(opstr[i][2] != 0 || !isdigit(opstr[i][1])) {
-                printf("Unknown register specification '%s'\n", opstr[i]);
+        if(ops[0] == 'r') {
+            if(ops[2] != 0 || !isdigit(ops[1])) {
+                printf("Unknown register specification '%s'\n", ops);
                 exit(1);
             }
-            result->optype[i] = RVM_OP_REG;
+            type += 2; // reg
             result->opval[i] = opstr[i][1] - '0';
-        }
-        // stack memory
-        else if(opstr[i][0] == '!') {
-            uint32_t parsed;
-            if(sscanf(opstr[i] + 1, "%u", &parsed) == 0) {
-                printf("Unknown stack offset specification '%s'\n", opstr[i]);
-                exit(1);
-            }
-            result->optype[i] = RVM_OP_STACK;
-            if(parsed > 0xff) {
-                printf("Stack offset too large: %u; can be at most 255\n",
-                    parsed);
-                exit(1);
-            }
-            result->opval[i] = parsed;
         }
         // constant
         else {
             uint32_t parsed = 0;
-            if(sscanf(opstr[i], "%u", &parsed) == 0) {
+            if(sscanf(ops, "%u", &parsed) == 0) {
                 printf("Unknown constant specification '%s'\n", opstr[i]);
                 exit(1);
             }
 
             if((int32_t)((int8_t)parsed) == (int32_t)parsed) {
-                result->optype[i] = RVM_OP_SCONST;
                 result->opval[i] = (uint8_t)parsed;
             }
             else {
-                result->optype[i] = RVM_OP_LCONST;
+                type += 1; // lconst
                 (*num_following) ++;
                 *(following++) = parsed;
             }
         }
+        result->optype[i] = type;
     }
 
     while(opcount > 0) free(opstr[--opcount]);
