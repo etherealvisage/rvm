@@ -1,7 +1,7 @@
 ;fib
 :main
 	or 0 0 r0
-	or 30 0 r1
+	or 32 0 r1
 
 	call :fib
 	hlt
